@@ -10,7 +10,7 @@ uploaded_file = st.file_uploader("Upload the final HRM Excel file", type=["xlsx"
 
 # Use default if none uploaded
 if uploaded_file is None:
-    st.warning("No file uploaded. Using sample data instead.")
+    #st.warning("No file uploaded. Using sample data instead.")
     uploaded_file = "final_hrm_survey_output.xlsx"
 
 if uploaded_file:
@@ -38,8 +38,18 @@ Use this dashboard to interactively explore these trends and surface priority ar
     # Average satisfaction scores (filtered only for this section)
     st.subheader("Average Satisfaction Scores")
     if "exit_intention_encoded" in df.columns:
-        selected_exit = st.selectbox("Filter Average Scores by Exit Intention", sorted(df["exit_intention_encoded"].unique()))
-        df_filtered = df[df["exit_intention_encoded"] == selected_exit]
+        if "exit_intention_encoded" in df.columns:
+            exit_labels = {
+            0: "Not at all",
+            1: "Mild consideration",
+            2: "Serious consideration"
+        }
+        df["exit_intention_label"] = df["exit_intention_encoded"].map(exit_labels)
+        selected_exit = st.selectbox(
+            "Filter Average Scores by Exit Intention",
+            ["Not at all", "Mild consideration", "Serious consideration"]
+        )
+        df_filtered = df[df["exit_intention_label"] == selected_exit]
     else:
         df_filtered = df
 
@@ -58,8 +68,15 @@ Use this dashboard to interactively explore these trends and surface priority ar
 
     # Exit intention encoded bar chart (summary view)
     if "exit_intention_encoded" in df.columns:
+        exit_labels = {
+            0: "Not at all",
+            1: "Mild consideration",
+            2: "Serious consideration"
+        }
+        df["exit_intention_label"] = df["exit_intention_encoded"].map(exit_labels)
+
         st.subheader("Exit Intention Summary (Encoded Responses)")
-        exit_counts = df["exit_intention_encoded"].value_counts()
+        exit_counts = df["exit_intention_label"].value_counts()
         fig_exit_summary, ax_exit_summary = plt.subplots(figsize=(6, 4))
         sns.barplot(x=exit_counts.index, y=exit_counts.values, palette="Reds", ax=ax_exit_summary)
         ax_exit_summary.set_xlabel("Exit Intention Level")
@@ -101,9 +118,11 @@ Use this dashboard to interactively explore these trends and surface priority ar
         """)
 
         selected_theme = st.selectbox("View Leaving Comments by Theme", theme_counts.index)
-        comments = df_classified[df_classified["Predicted Theme"] == selected_theme]["Reason"].head(10)
-        for i, comment in enumerate(comments, 1):
+        unique_comments = df_classified[df_classified["Predicted Theme"] == selected_theme]["Reason"].drop_duplicates().head(10)
+        for i, comment in enumerate(unique_comments, 1):
             st.markdown(f"**{i}.** {comment}")
+
+
 
     # Staying reasons
     if df_stay is not None:
@@ -119,14 +138,15 @@ Use this dashboard to interactively explore these trends and surface priority ar
         """)
 
         selected_stay_theme = st.selectbox("View Staying Comments by Theme", stay_counts.index)
-        stay_comments = df_stay[df_stay["Predicted Theme"] == selected_stay_theme]["Reason"].head(10)
-        for i, comment in enumerate(stay_comments, 1):
+        unique_stay_comments = df_stay[df_stay["Predicted Theme"] == selected_stay_theme]["Reason"].drop_duplicates().head(10)
+        for i, comment in enumerate(unique_stay_comments, 1):
             st.markdown(f"**{i}.** {comment}")
 
+
     # Most specific issues (open-ended)
-    if df_open is not None and "Problem Theme" in df_open.columns:
+    if df_open is not None and "problem_theme" in df_open.columns:
         st.subheader("Most Specific Issues Raised by Staff")
-        issue_counts = df_open["Problem Theme"].value_counts().sort_values(ascending=False)
+        issue_counts = df_open["problem_theme"].value_counts().sort_values(ascending=False)
 
         fig_issue, ax_issue = plt.subplots(figsize=(8, 5))
         sns.barplot(x=issue_counts.values, y=issue_counts.index, palette="rocket", ax=ax_issue)
@@ -141,11 +161,51 @@ Use this dashboard to interactively explore these trends and surface priority ar
         """)
 
         selected_issue_theme = st.selectbox("View Issue Comments by Theme", issue_counts.index)
-        theme_comments = df_open[df_open["Problem Theme"] == selected_issue_theme]["Suggested Improvements"].head(10)
+        theme_comments = df_open[df_open["problem_theme"] == selected_issue_theme]["Suggested Improvements"].head(10)
         for i, comment in enumerate(theme_comments, 1):
             st.markdown(f"**{i}.** {comment}")
 
-    st.success("Dashboard loaded successfully!")
+
+    # Correlation analysis
+    st.header("Correlation Analysis Among Survey Items")
+    if likert_cols:
+        corr = df[likert_cols].corr()
+        fig_corr, ax_corr = plt.subplots(figsize=(10, 8))
+        sns.heatmap(corr, annot=True, cmap='coolwarm', fmt=".2f", ax=ax_corr)
+        st.pyplot(fig_corr)
+        st.markdown("""
+        **Interpretation:**
+        The correlation heatmap reveals several strong relationships:
+        - *Perceived Career Opportunities* is highly correlated with *Career Planning Discussions* and *Career Development Support*.
+        - *Motivation from Recognition* has a strong relationship with *Workplace Satisfaction*, indicating that recognition drives morale.
+        - Low correlation for some items (like Training Support) suggests these may be weaker or more isolated drivers.
+        """)
+        st.markdown("""
+        **Interpretation:** This heatmap shows how strongly each survey item correlates with others. Look for high positive values (>0.5) as indicators of related constructs (e.g., satisfaction and motivation).
+        """)
+
+    # Descriptive statistics summary
+    st.header("Descriptive Statistics")
+    desc_df = df[likert_cols].describe().transpose()
+    st.dataframe(desc_df.style.format("{:.2f}"))
+    st.markdown("""
+    **Interpretation:**
+    - *Understanding of Role & Goals* has the highest mean score, reflecting clarity in expectations.
+    - *Training & Development Support* shows the lowest average and highest variance—highlighting a gap.
+    - This disparity reveals an area for strategic HR development.
+    """)
+
+    # Cross-tab: Exit intention vs Tenure (if both exist)
+    if "exit_intention_encoded" in df.columns and "Tenure" in df.columns:
+        st.header("Cross-tabulation: Exit Intention vs Tenure")
+        crosstab = pd.crosstab(df["Tenure"], df["exit_intention_label"])
+        st.dataframe(crosstab)
+        st.markdown("""
+        **Interpretation:**
+        - Employees with over 3 years tenure show high loyalty (more "Not at all").
+        - Serious consideration to leave is more likely in early tenure.
+        - Indicates onboarding and early retention should be prioritized.
+        """)
 
     st.header("Conclusion and Recommendations")
     st.markdown("""
